@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+*.pem
+*.p8
+connections.toml
+config.toml
+.DS_Store

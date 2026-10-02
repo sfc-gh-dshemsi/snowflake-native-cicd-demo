@@ -1,0 +1,135 @@
+name: Analytics CI/CD
+
+# Pull request -> DEV.  Merge to main -> QA -> PROD (after approval).
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One deployment at a time across all environments; never cancel one halfway.
+concurrency:
+  group: analytics-deploy
+  cancel-in-progress: false
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.11'
+      - run: pip install -r requirements-ci.txt
+      - run: python -m unittest discover -s tests -v
+
+  dev:
+    needs: checks
+    if: >-
+      vars.DEPLOY_ENABLED == 'true' && github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    environment: dev
+    permissions:
+      contents: read
+      id-token: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      DEPLOY_SHA: ${{ github.event.pull_request.head.sha }}
+      SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+      SNOWFLAKE_USER: ANALYTICS_CI_DEV
+      SNOWFLAKE_ROLE: ANALYTICS_DEPLOY_DEV
+      SNOWFLAKE_WAREHOUSE: PIPELINE_WH
+      SNOWFLAKE_AUTHENTICATOR: WORKLOAD_IDENTITY
+      SNOWFLAKE_WORKLOAD_IDENTITY_PROVIDER: OIDC
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: snowflakedb/snowflake-actions@1160898243c351349621a6c2bac2e455ab1077b2 # resolved v3
+        with:
+          use-oidc: true
+          cli-version: '3.17.1'
+      - name: Deploy and verify DEV
+        run: ci/deploy.sh DEV "$DEPLOY_SHA"
+
+  # Branch protection requires this check, so a skipped DEV deployment cannot pass as green.
+  dev-verified:
+    needs: [checks, dev]
+    if: always() && github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require a real DEV deployment
+        env:
+          CHECKS_RESULT: ${{ needs.checks.result }}
+          DEV_RESULT: ${{ needs.dev.result }}
+        run: test "$CHECKS_RESULT" = success && test "$DEV_RESULT" = success
+
+  qa:
+    needs: checks
+    if: >-
+      vars.DEPLOY_ENABLED == 'true' && github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    environment: qa
+    permissions:
+      contents: read
+      id-token: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      DEPLOY_SHA: ${{ github.sha }}
+      SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+      SNOWFLAKE_USER: ANALYTICS_CI_QA
+      SNOWFLAKE_ROLE: ANALYTICS_DEPLOY_QA
+      SNOWFLAKE_WAREHOUSE: PIPELINE_WH
+      SNOWFLAKE_AUTHENTICATOR: WORKLOAD_IDENTITY
+      SNOWFLAKE_WORKLOAD_IDENTITY_PROVIDER: OIDC
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: snowflakedb/snowflake-actions@1160898243c351349621a6c2bac2e455ab1077b2 # resolved v3
+        with:
+          use-oidc: true
+          cli-version: '3.17.1'
+      - name: Deploy and verify QA
+        run: ci/deploy.sh QA "$DEPLOY_SHA"
+
+  prod:
+    needs: qa
+    if: >-
+      vars.DEPLOY_ENABLED == 'true' && github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    environment: prod
+    permissions:
+      contents: read
+      id-token: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      DEPLOY_SHA: ${{ github.sha }}
+      SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+      SNOWFLAKE_USER: ANALYTICS_CI_PRD
+      SNOWFLAKE_ROLE: ANALYTICS_DEPLOY_PRD
+      SNOWFLAKE_WAREHOUSE: PIPELINE_WH
+      SNOWFLAKE_AUTHENTICATOR: WORKLOAD_IDENTITY
+      SNOWFLAKE_WORKLOAD_IDENTITY_PROVIDER: OIDC
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: snowflakedb/snowflake-actions@1160898243c351349621a6c2bac2e455ab1077b2 # resolved v3
+        with:
+          use-oidc: true
+          cli-version: '3.17.1'
+      - name: Deploy and verify PROD
+        run: ci/deploy.sh PRD "$DEPLOY_SHA"
