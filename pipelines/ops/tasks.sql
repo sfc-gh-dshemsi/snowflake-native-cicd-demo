@@ -5,6 +5,8 @@ CREATE OR REPLACE TASK OPS.PIPELINE_ROOT
     WAREHOUSE = PIPELINE_WH
     SCHEDULE = 'USING CRON 0 6 * * * America/Los_Angeles'
     USER_TASK_TIMEOUT_MS = 600000
+    -- A schedule that keeps failing suspends itself instead of spending credits every day.
+    SUSPEND_TASK_AFTER_NUM_FAILURES = 3
 AS
     CALL BRONZE.LOAD_AMPLITUDE_EVENTS();
 

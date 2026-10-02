@@ -151,7 +151,7 @@ Open `setup/setup.sql` in your editor and use find-and-replace for each placehol
 | `<your-org-id>` | `owner id` from Step 1 | `81234567` |
 | `<your-repo-id>` | `repo id` from Step 1 | `912345678` |
 
-They appear in section 05 (Git connection) and section 06 (the three `SUBJECT` lines). Search afterwards for `<your-`; nothing should remain. Commit and push the file.
+They appear in section 05 (Git connection), section 06 (the three `SUBJECT` lines) and the optional section 09. Search afterwards for `<your-`; nothing should remain. Commit and push the file.
 
 ### Step 3 - Private repository only: give Snowflake read access
 
@@ -159,8 +159,8 @@ Skip this step for a public repository.
 
 1. In GitHub, open your profile picture, then **Settings -> Developer settings -> Personal access tokens -> Fine-grained tokens -> Generate new token**.
 2. Under **Repository access**, choose **Only select repositories** and pick this repository. Under **Permissions -> Repository permissions**, set **Contents** to **Read-only**. Generate the token and copy it.
-3. In `setup/setup.sql`, uncomment the three blocks marked `PRIVATE REPOSITORY ONLY`:
-   - the `CREATE SECRET` statement in section 05: put your GitHub user name in `USERNAME`, and leave `PASSWORD` as the placeholder in the file;
+3. In section 05 of `setup/setup.sql`, uncomment the three blocks marked `PRIVATE REPOSITORY ONLY (1 of 3)` to `(3 of 3)`:
+   - the `CREATE SECRET` statement: put your GitHub user name in `USERNAME`, and leave `PASSWORD` as the placeholder in the file;
    - the `ALLOWED_AUTHENTICATION_SECRETS` line in `CREATE API INTEGRATION`;
    - the `GIT_CREDENTIALS` line in `CREATE GIT REPOSITORY`.
 4. Paste the real token only into the Snowsight worksheet in Step 4, never into the file. Commit and push the file with the placeholder still in place.
@@ -169,8 +169,8 @@ Skip this step for a public repository.
 
 1. In Snowsight, open **Projects -> Workspaces** (or **Worksheets**) and create a new SQL file.
 2. Paste the full contents of `setup/setup.sql`. For a private repository, replace `<read-only token>` with the token from Step 3 in this worksheet only.
-3. Run the whole file with **Run All**. It switches to `ACCOUNTADMIN` itself. Every statement is safe to rerun.
-4. Check the results of section 07:
+3. Run sections 00-08 in order. On the first run you can use **Run All**. Each section switches to the least powerful role that can do its work: `USERADMIN` for roles and users, `SYSADMIN` for warehouses and databases, `SECURITYADMIN` for grants, and `ACCOUNTADMIN` only for the budget, the integration and `EXECUTE TASK`. Sections 00-06 are safe to rerun. Section 07 loads the 8 source rows once: it first shows `LANDING_BEFORE_INSERT`. On any later run, if that count isn't 0, skip the transaction and go to section 08.
+4. Check the results of section 08:
 
    | Query | Expected |
    |---|---|
@@ -249,7 +249,12 @@ On the older settings page (**Settings -> Branches -> Add branch protection rule
 
 ### Step 9 - Optional: edit from Snowsight without a local Git setup
 
-Run section 08 of `setup/setup.sql`, then open **Projects -> Workspaces -> From Git repository**. Teammates can change SQL in Snowsight, commit to a branch, and open the same pull request. Deployment doesn't depend on this.
+For teammates who'd rather not set up Git locally. Uncomment section 09 of `setup/setup.sql`, replace `<teammate-user>`, and run only that section. It creates:
+
+- a second integration where each person signs in to GitHub with their own account, so commits show who made them and no shared token is used;
+- an `ANALYTICS_DEVELOPER` role that can read DEV results but cannot change any environment.
+
+The teammate then switches to `ANALYTICS_DEVELOPER`, opens **Projects -> Workspaces -> From Git repository**, creates a feature branch, edits the rule and its expected numbers, and commits. They open the pull request in GitHub as usual, and CI deploys it to DEV. Workspaces never deploys anything itself, so every change still goes through the same pull request, checks and approvals.
 
 ### Before each demo
 
